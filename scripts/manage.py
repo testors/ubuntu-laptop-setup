@@ -322,7 +322,9 @@ def status(args):
                         print('  RELOGIN REQUIRED: the process still maps a replaced library')
         except (FileNotFoundError, PermissionError):
             pass
-    print('\nAdministrator fingerprint PAM: planned, NOT applied by this repository.')
+    from admin_fingerprint import status as admin_status
+    print('\nAdministrator fingerprint PAM:')
+    admin_status()
 
 
 def main():

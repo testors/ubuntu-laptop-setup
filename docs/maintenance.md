@@ -7,6 +7,7 @@
 | 지문 | `/opt`의 사설 라이브러리와 `/etc` 서비스 설정은 보통 남지만 fprintd/의존 라이브러리 변화로 호환성이 달라질 수 있음 | `status`, 실제 지문 인증, 필요 시 재빌드/설정 재적용 |
 | 드래그 | 사용자 설정은 남아도 새 libinput 대신 예전 사설 라이브러리가 계속 사용될 수 있음 | `REBUILD REQUIRED`가 나오면 현재 공식 libinput 소스 기준 재빌드 |
 | Mutter | 더 높은 공식 패키지 버전이 로컬 패치를 교체할 수 있음 | 공식 수정 포함 여부 확인; 미포함이면 새 공식 소스에 재적용 |
+| 관리자 지문 인증 | sudo 설정 파일을 배포판 원본으로 교체하면 지문 규칙이 없어질 수 있음 | `./admin-fingerprint status`, 필요 시 `install` 재적용 |
 
 ## 확인 순서
 
@@ -33,6 +34,7 @@ libinput 또는 Mutter가 업데이트됐다면 [새 소스 빌드 절차](build
 | 드래그 설정 | `${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/org.gnome.Shell@ubuntu.service.d/60-three-finger-drag.conf` |
 | 드래그 설치 기록 | `${XDG_STATE_HOME:-$HOME/.local/state}/ubuntu-custom/drag/` |
 | 시스템 설치 기록/원복 패키지 | `/var/lib/ubuntu-custom/` |
+| 관리자 지문 인증 백업/원복 도구 | `/var/lib/ubuntu-custom/admin-fingerprint/<백업ID>/` |
 
 원래 설치는 지문 `/opt/fingerprint-egis-05b1/e105528/`, 드래그 `$HOME/.local/lib/enable-3fg-drag/`, Mutter 복구 `/var/lib/local-mutter-keymap-fix/`를 사용했다. 이번 보관 작업은 현재 경로를 바꾸지 않았다. 이후 새 도구로 설치하면 위 새 경로를 사용한다. 라이브러리는 실행 중 파일을 잘라 쓰지 않고 새 파일로 교체한다.
 
@@ -55,4 +57,4 @@ cd ~/Repos/ubuntu
 
 텍스트 콘솔에서는 관리자 작업에 sudo를 사용한다. 드래그는 sudo 없이 실행해야 실제 사용자 설정을 찾는다. `systemctl --user`에 연결할 수 없는 복구 환경이면 위 표의 해당 드래그 override를 `.disabled` 확장자로 옮긴 뒤 다음 로그인으로 복구할 수 있다. 다른 override가 있으면 내용을 먼저 확인한다. 더 최신 Mutter가 설치된 경우에는 이 보관본을 강제 다운그레이드하지 말고 현재 배포판 공식 패키지로 복구한다.
 
-지문 등록은 기기별로 다시 수행하며 센서 초기화나 기존 등록 삭제를 자동화하지 않는다. 관리 도구는 sudo/polkit의 PAM 설정을 변경하지 않는다.
+지문 등록은 기기별로 다시 수행하며 센서 초기화나 기존 등록 삭제를 자동화하지 않는다. `ubuntu-custom`의 드라이버 설치는 PAM을 변경하지 않는다. 별도 `admin-fingerprint` 도구가 sudo/polkit의 PAM 설정을 관리한다. [자세한 적용·복구 절차](admin-fingerprint.md)를 참고한다.
