@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "distro": "ubuntu",
+  "release": "26.04",
+  "architecture": "amd64",
+  "component": "mutter",
+  "version": "50.1-0ubuntu2.4+keymapfix1",
+  "base_version": "50.1-0ubuntu2.4",
+  "shell_major": 50,
+  "source_commit": "709ef34381e51e83327b9c6d7270ed437d714768",
+  "packages": [
+    {
+      "package": "libmutter-18-0",
+      "patched": "patched/libmutter-18-0_50.1-0ubuntu2.4+keymapfix1_amd64.deb",
+      "stock": "stock/libmutter-18-0_50.1-0ubuntu2.4_amd64.deb"
+    },
+    {
+      "package": "mutter-common",
+      "patched": "patched/mutter-common_50.1-0ubuntu2.4+keymapfix1_all.deb",
+      "stock": "stock/mutter-common_50.1-0ubuntu2.4_all.deb"
+    },
+    {
+      "package": "mutter-common-bin",
+      "patched": "patched/mutter-common-bin_50.1-0ubuntu2.4+keymapfix1_amd64.deb",
+      "stock": "stock/mutter-common-bin_50.1-0ubuntu2.4_amd64.deb"
+    },
+    {
+      "package": "gir1.2-mutter-18",
+      "patched": "patched/gir1.2-mutter-18_50.1-0ubuntu2.4+keymapfix1_amd64.deb",
+      "stock": "stock/gir1.2-mutter-18_50.1-0ubuntu2.4_amd64.deb"
+    }
+  ],
+  "files": {
+    "patched/gir1.2-mutter-18_50.1-0ubuntu2.4+keymapfix1_amd64.deb": "7d6419798b58da4a75d5dfd42fa76a3cf523e51c509333427e57ae73c904fc60",
+    "patched/libmutter-18-0_50.1-0ubuntu2.4+keymapfix1_amd64.deb": "40c95ed5a37ecbd9ee29b03573763fcd01940267b0cfd14d8d6f9ff80f5f8a0b",
+    "patched/mutter-common-bin_50.1-0ubuntu2.4+keymapfix1_amd64.deb": "ddd8de152847723c55795ef3c9717ca7189c756192b46c676f244f52b4fabf11",
+    "patched/mutter-common_50.1-0ubuntu2.4+keymapfix1_all.deb": "35fe09ff5256d680c74b0163718b047f8eb34f8fc462f06e9bbec8b43d182f37",
+    "stock/gir1.2-mutter-18_50.1-0ubuntu2.4_amd64.deb": "19637e293017528e29f230e0ede48f77aa70cc359f126f30a58997aada72e623",
+    "stock/libmutter-18-0_50.1-0ubuntu2.4_amd64.deb": "dd8e5661795b34cade0d6594ca029713e7af752b4fc34c0b5a124be727b00be1",
+    "stock/mutter-common-bin_50.1-0ubuntu2.4_amd64.deb": "1ade597c2d8d058c23c7a506ba12205fd7e53af6f781a90a880546a74440ba5c",
+    "stock/mutter-common_50.1-0ubuntu2.4_all.deb": "95b96202b250b9d3fd788b547b37a0167e1c14ac999735b9667d2bb5c32f0974"
+  }
+}

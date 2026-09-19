@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "distro": "ubuntu",
+  "release": "26.04",
+  "architecture": "amd64",
+  "component": "fingerprint",
+  "version": "e105528",
+  "library": "libfprint-2.so.2.0.0",
+  "soname": "libfprint-2.so.2",
+  "usb_id": "1c7a:05b1",
+  "source_commit": "e105528828a04dffde789cda48742c204183386d",
+  "files": {
+    "libfprint-2.so.2.0.0": "7787b1c874df1e97d469a9da0163818b76aa0175ec2e478ce27b5c9fd49edbf9"
+  }
+}

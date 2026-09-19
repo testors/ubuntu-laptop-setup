@@ -1,0 +1,88 @@
+From 709ef34381e51e83327b9c6d7270ed437d714768 Mon Sep 17 00:00:00 2001
+From: Carlos Garnacho <carlosg@gnome.org>
+Date: Wed, 13 May 2026 09:24:05 +0200
+Subject: [PATCH] backends/native: Interface with XKB only in the input thread
+
+The MetaKeymapNative impl struct fields are reserved for the input
+thread, but some operations on the input thread's XKB keymap seeped
+into the main thread.
+
+Fill in the caps/num lock mask indexes from the input thread in
+the ModifierState struct, so that the main thread can update the
+Clutter-facing ClutterKeymap bits using exclusively information
+from this structure.
+
+Closes: https://gitlab.gnome.org/GNOME/mutter/-/work_items/4802
+Part-of: <https://gitlab.gnome.org/GNOME/mutter/-/merge_requests/5064>
+---
+ src/backends/native/meta-keymap-native.c | 20 +++++++++++++-------
+ 1 file changed, 13 insertions(+), 7 deletions(-)
+
+diff --git a/src/backends/native/meta-keymap-native.c b/src/backends/native/meta-keymap-native.c
+index 30962f63da..f0c1bf6d56 100644
+--- a/src/backends/native/meta-keymap-native.c
++++ b/src/backends/native/meta-keymap-native.c
+@@ -66,6 +66,9 @@ typedef struct
+   xkb_mod_mask_t locked_mods;
+ 
+   xkb_layout_index_t effective_layout_group;
++
++  int caps_lock_idx;
++  int num_lock_idx;
+ } ModifierState;
+ 
+ G_DEFINE_TYPE (MetaKeymapNative, meta_keymap_native,
+@@ -154,7 +157,8 @@ meta_keymap_native_init (MetaKeymapNative *keymap)
+ }
+ 
+ static ModifierState
+-calculate_modifier_state (struct xkb_state *xkb_state)
++calculate_modifier_state (struct xkb_keymap *xkb_keymap,
++                          struct xkb_state  *xkb_state)
+ {
+   return (ModifierState) {
+     .depressed_mods =
+@@ -165,6 +169,8 @@ calculate_modifier_state (struct xkb_state *xkb_state)
+       xkb_state_serialize_mods (xkb_state, XKB_STATE_MODS_LOCKED),
+     .effective_layout_group =
+       xkb_state_serialize_layout (xkb_state, XKB_STATE_LAYOUT_EFFECTIVE),
++    .num_lock_idx = xkb_keymap_mod_get_index (xkb_keymap, XKB_MOD_NAME_NUM),
++    .caps_lock_idx = xkb_keymap_mod_get_index (xkb_keymap, XKB_MOD_NAME_CAPS),
+   };
+ }
+ 
+@@ -178,12 +184,10 @@ update_state_from_modifier_state (MetaKeymapNative *keymap_native,
+ 
+   num_lock_state =
+     !!((modifier_state->latched_mods | modifier_state->locked_mods) &
+-       (1 << xkb_keymap_mod_get_index (keymap_native->impl.keymap,
+-                                       XKB_MOD_NAME_NUM)));
++       (1 << modifier_state->num_lock_idx));
+   caps_lock_state =
+     !!((modifier_state->latched_mods | modifier_state->locked_mods) &
+-       (1 << xkb_keymap_mod_get_index (keymap_native->impl.keymap,
+-                                       XKB_MOD_NAME_CAPS)));
++       (1 << modifier_state->caps_lock_idx));
+ 
+   return clutter_keymap_update_state (CLUTTER_KEYMAP (keymap_native),
+                                       caps_lock_state,
+@@ -259,7 +263,8 @@ meta_keymap_native_set_keymap_in_impl (MetaKeymapNative      *keymap,
+ 
+   data = g_new0 (UpdateKeymapData, 1);
+   data->keymap_native = keymap;
+-  data->modifier_state = calculate_modifier_state (xkb_state);
++  data->modifier_state =
++    calculate_modifier_state (keymap->impl.keymap, xkb_state);
+   data->keymap_description = meta_keymap_description_ref (keymap_description);
+   data->display_names = g_steal_pointer (&display_names);
+   data->short_names = g_steal_pointer (&short_names);
+@@ -301,7 +306,8 @@ meta_keymap_native_update_in_impl (MetaKeymapNative *keymap_native,
+ 
+   data = g_new0 (UpdateLockedModifierStateData, 1);
+   data->keymap_native = keymap_native;
+-  data->modifier_state = calculate_modifier_state (xkb_state);
++  data->modifier_state =
++    calculate_modifier_state (keymap_native->impl.keymap, xkb_state);
+ 
+   meta_seat_impl_queue_main_thread_idle (keymap_native->impl.seat_impl,
+                                          update_state_in_main,

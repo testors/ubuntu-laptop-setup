@@ -1,0 +1,42 @@
+--- a/src/evdev-mt-touchpad-gestures.c
++++ b/src/evdev-mt-touchpad-gestures.c
+@@ -1888,6 +1888,15 @@
+ static void
+ tp_gesture_handle_state_3fg_drag_or_swipe_start(struct tp_dispatch *tp, usec_t time)
+ {
++	/* Local preference: three-finger dragging must not turn into a swipe
++	 * based on movement speed. Start dragging before any swipe event is
++	 * emitted; retain the upstream behavior for four-finger dragging.
++	 */
++	if (tp->drag_3fg.nfingers == 3 && tp->gesture.finger_count == 3) {
++		tp->gesture.state = GESTURE_STATE_3FG_DRAG_START;
++		return;
++	}
++
+ 	const struct normalized_coords zero = { 0.0, 0.0 };
+ 	gesture_notify_swipe(&tp->device->base,
+ 			     time,
+--- a/test/test-gestures.c
++++ b/test/test-gestures.c
+@@ -2133,6 +2133,21 @@
+ 				    LIBINPUT_EVENT_GESTURE_HOLD_BEGIN,
+ 				    LIBINPUT_EVENT_GESTURE_HOLD_END);
+ 
++	if (finger_count == 3) {
++		/* A fast three-finger motion is a complete left-button drag,
++		 * without any swipe begin/update/end events reaching the desktop.
++		 */
++		litest_assert_button_event(li, BTN_LEFT, LIBINPUT_BUTTON_STATE_PRESSED);
++		litest_assert_only_typed_events(li, LIBINPUT_EVENT_POINTER_MOTION);
++		for (uint32_t i = 0; i < finger_count; i++)
++			litest_touch_up(dev, i);
++		litest_dispatch(li);
++		litest_timeout_3fg_drag(li);
++		litest_assert_button_event(li, BTN_LEFT, LIBINPUT_BUTTON_STATE_RELEASED);
++		litest_assert_empty_queue(li);
++		return LITEST_PASS;
++	}
++
+ 	auto begin = libinput_get_event(li);
+ 	litest_is_gesture_event(begin,
+ 				LIBINPUT_EVENT_GESTURE_SWIPE_BEGIN,

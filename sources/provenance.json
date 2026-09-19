@@ -1,0 +1,19 @@
+{
+  "fingerprint": {
+    "url": "https://github.com/likeablob/libfprint-fmv-etu906axx-e",
+    "commit": "e105528828a04dffde789cda48742c204183386d"
+  },
+  "drag_shim": {
+    "url": "https://github.com/joaodriessen/enable-3fg-drag",
+    "commit": "09e9ca763eca05c33a183c7a6cf582bdd77dbbb1"
+  },
+  "libinput": {
+    "url": "https://archive.ubuntu.com/ubuntu/pool/main/libi/libinput/libinput_1.31.1-1ubuntu1.2.dsc",
+    "version": "1.31.1-1ubuntu1.2"
+  },
+  "mutter": {
+    "url": "https://archive.ubuntu.com/ubuntu/pool/main/m/mutter/mutter_50.1-0ubuntu2.4.dsc",
+    "version": "50.1-0ubuntu2.4",
+    "patch_commit": "709ef34381e51e83327b9c6d7270ed437d714768"
+  }
+}
