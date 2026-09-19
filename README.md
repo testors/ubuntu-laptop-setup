@@ -1,4 +1,4 @@
-# Ubuntu 노트북 커스텀 패치 보관소
+# Ubuntu Laptop Setup
 
 2026-09-19에 이 노트북에 적용한 변경의 **원본 소스, 패치, 검증된 바이너리, 재빌드·재설치·원복 도구**를 보관한다. 기존 Codex 작업 폴더나 특정 계정명 없이 이 디렉터리만 옮겨 사용할 수 있다.
 
@@ -14,7 +14,7 @@
 ## 먼저 확인
 
 ```bash
-cd ~/Repos/ubuntu
+cd ~/Repos/ubuntu-laptop-setup
 ./ubuntu-custom verify
 ./ubuntu-custom status
 ```

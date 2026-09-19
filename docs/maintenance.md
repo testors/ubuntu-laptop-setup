@@ -12,7 +12,7 @@
 ## 확인 순서
 
 ```bash
-cd ~/Repos/ubuntu
+cd ~/Repos/ubuntu-laptop-setup
 ./ubuntu-custom verify
 ./ubuntu-custom status
 dpkg --audit
@@ -47,7 +47,7 @@ Mutter 설치는 먼저 APT 계획을 확인하고 패키지 삭제가 필요한
 Ctrl+Alt+F3으로 TTY에 전환해 해당 사용자로 로그인한다. 경로는 보관소를 옮긴 위치로 바꾼다.
 
 ```bash
-cd ~/Repos/ubuntu
+cd ~/Repos/ubuntu-laptop-setup
 ./ubuntu-custom disable drag
 ./ubuntu-custom disable fingerprint
 ./ubuntu-custom rollback mutter --dry-run
