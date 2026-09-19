@@ -8,6 +8,7 @@
 | `drag` | libinput `1.31.1-1ubuntu1.2` + shim `09e9ca7` | 사용자의 GNOME Wayland 세션; 빠른 세손가락 움직임도 드래그 처리 |
 | `mutter` | `50.1-0ubuntu2.4+keymapfix1` | 키맵 변경 때 XKB 접근 경쟁 상태 수정 |
 | 관리자 지문 인증 | 지문 우선, 약 10초 뒤 비밀번호 fallback | **적용 완료**: sudo/sudo-i 및 설치·설정 창; [안내](docs/admin-fingerprint.md) |
+| 잠금화면 바로 인증 | GNOME 50용 `Direct Unlock Prompt` 확장 | 화면 복귀 시 현재 계정 인증창 자동 표시; [설치·원복](docs/direct-unlock.md) |
 
 보관 바이너리의 검증 환경은 **Ubuntu 26.04 amd64, GNOME 50**이다. 지문 드라이버는 USB ID가 일치해야 한다. 다른 Ubuntu 릴리스·CPU 아키텍처·GNOME 버전에서 그대로 설치하는 것을 차단한다. 같은 Ubuntu 안에서도 libinput 기준 버전이 다르거나 더 최신 Mutter가 설치되어 있으면 [업데이트 후 재적용 절차](docs/maintenance.md)를 따른다.
 
@@ -21,7 +22,7 @@ cd ~/Repos/ubuntu-laptop-setup
 
 `verify`는 소스·패치·바이너리·라이선스 31개 파일의 SHA-256을 확인한다. `status`는 장치, 설정 파일, 설치된 패키지 및 실행 중인 GNOME의 라이브러리를 조회한다. 재로그인이 필요한 경우 `RELOGIN REQUIRED`가 표시된다. 서비스·설정·패키지를 변경하지 않는다.
 
-**현재 상태:** 세 가지 드라이버/세션 변경과 관리자 지문 인증 모두 적용되어 있다. 관리자 인증은 다음 인증부터 즉시 적용된다. Mutter는 현재 세션에서 아직 이전 라이브러리를 사용하므로 사용자가 작업을 저장한 뒤 재로그인해야 한다. 재로그인 후 실제 잠금·지문 해제 반복 시험은 남아 있다. 시스템을 재설치하거나 세션을 재시작하지 않았다.
+**현재 상태(2026-09-19 후속 확인):** 세 가지 드라이버/세션 변경과 관리자 지문 인증이 적용되어 있다. 새 GNOME 세션에서 설치된 Mutter 키맵 패치 라이브러리를 사용하는 것을 확인했다. 잠금화면 바로 인증 확장도 설치되어 `ACTIVE` 상태다. 실제 Enter 없는 잠금·지문 해제와 반복 시험은 남아 있다. 설치 도구가 세션을 강제로 재시작하지는 않는다.
 
 ## 같은 환경에 설치하거나 설정이 사라졌을 때 복원
 
@@ -55,6 +56,14 @@ fprintd-verify -f right-index-finger
 ./admin-fingerprint install
 ```
 
+잠금화면에서 Enter 없이 지문 인증창을 표시하려면 다음 확장을 설치하고 재로그인한다. [확장 안내](docs/direct-unlock.md)에 동작 범위와 검증 방법이 있다.
+
+```bash
+./direct-unlock install --dry-run
+./direct-unlock install
+./direct-unlock status
+```
+
 드래그는 일반 Ubuntu의 `org.gnome.Shell@ubuntu.service`를 기본으로 사용한다. 다른 GNOME 세션은 실제 유닛 이름을 확인한 뒤 `--service org.gnome.Shell@wayland.service`처럼 지정한다. X11 및 타 데스크톱은 이 구성의 검증 범위 밖이다.
 
 ## 원복
@@ -65,6 +74,7 @@ fprintd-verify -f right-index-finger
 ./ubuntu-custom disable fingerprint
 ./ubuntu-custom rollback mutter
 ./admin-fingerprint rollback
+./direct-unlock disable
 ```
 
 드래그·지문은 이 도구가 인식하는 서비스 설정만 제거하고 Ubuntu 기본 라이브러리를 다시 사용한다. 개인 지문 등록 데이터는 삭제하지 않는다. Mutter는 보관한 공식 `50.1-0ubuntu2.4` 패키지 4개로 돌아간다. 이미 다른 버전으로 업데이트되었다면 무작정 다운그레이드하지 않고 중단한다. 드래그·Mutter 원복도 재로그인 후 활성화된다. 로그인에 문제가 생겼을 때의 TTY 복구는 [유지보수 문서](docs/maintenance.md#로그인에-문제가-있을-때)에 있다.
@@ -87,9 +97,10 @@ fprintd-verify -f right-index-finger
 - `artifacts/`: 실제 사용 중이거나 설치 검증을 마친 바이너리, Mutter 공식 원복 패키지, 설치 명세.
 - `sources/`, `patches/`, `licenses/`: 고정 커밋의 전체 소스, Ubuntu 원본 소스/패키징, 적용 패치, 원저작물 라이선스.
 - `scripts/`, `tests/`: 이식 가능한 관리·빌드 도구, 실제 시스템을 건드리지 않는 보호 장치 시험.
+- `extensions/`: GNOME 50용 잠금화면 확장 소스와 라이선스.
 - `docs/`: 빌드, 업데이트 대응, 일반 설정, 검증 범위. `docs/reports/`는 당시 보고서와 **과거 전용** 복구 스크립트.
 - `pending/`: 최초 보관 당시 미적용이었던 계획의 후속 상태 링크. 관리자 지문 인증은 이후 적용 완료.
 
-SSH 개인키, 실제 지문 템플릿, 비밀번호, 코어 덤프는 포함하지 않는다. 소스 프로젝트의 시험용 센서 자료는 원본 소스에 포함될 수 있으며 사용자의 등록 지문이 아니다. 이 디렉터리 전체를 백업하되 재생성 가능한 `build/`는 제외해도 된다. 외부 Git 저장소로 업로드하지 않았다.
+SSH 개인키, 실제 지문 템플릿, 비밀번호, 코어 덤프는 포함하지 않는다. 소스 프로젝트의 시험용 센서 자료는 원본 소스에 포함될 수 있으며 사용자의 등록 지문이 아니다. 이 디렉터리 전체를 백업하되 재생성 가능한 `build/`는 제외해도 된다. GitHub의 [testors/ubuntu-laptop-setup](https://github.com/testors/ubuntu-laptop-setup)에 보관한다.
 
 [검증 결과](docs/validation.md) · [일반 설정과 공식 패키지](docs/settings.md) · [원본 출처](sources/provenance.json) · [라이선스 안내](licenses/README.md)

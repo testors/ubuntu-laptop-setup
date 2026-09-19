@@ -1,0 +1,9 @@
+{
+  "uuid": "direct-unlock@testors.github.io",
+  "name": "Direct Unlock Prompt",
+  "description": "Show the current user's normal authentication prompt when the lock screen wakes, without pressing Enter first.",
+  "shell-version": ["50"],
+  "session-modes": ["user", "unlock-dialog"],
+  "url": "https://github.com/testors/ubuntu-laptop-setup",
+  "version": 1
+}
