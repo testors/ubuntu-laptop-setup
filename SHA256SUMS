@@ -1,6 +1,9 @@
 f84c1d48fc11986c0189cd18461398781f152aeb2769d9ab9dc5c2c68e6c1131  artifacts/drag/libenable-3fg-drag.so
 46626c233a6d657c007792c70dae2ab723aa5ae1305e023527146437a877d94f  artifacts/drag/libinput.so.10.13.0
 eeea99e7fcd1c6e6f672e4e43357af20df0f75f9146c0330a919f1724606aeac  artifacts/drag/manifest.json
+f84c1d48fc11986c0189cd18461398781f152aeb2769d9ab9dc5c2c68e6c1131  artifacts/drag/by-base/1.31.1-1ubuntu1/libenable-3fg-drag.so
+33effde2a80ff8f68d5dc22c177ae34716af9d79b508687cb8f83861127e98e6  artifacts/drag/by-base/1.31.1-1ubuntu1/libinput.so.10.13.0
+72378e6814a0bef80762d7e14f1e21df6fc26380b8330e20797c3204829e8a4d  artifacts/drag/by-base/1.31.1-1ubuntu1/manifest.json
 7787b1c874df1e97d469a9da0163818b76aa0175ec2e478ce27b5c9fd49edbf9  artifacts/fingerprint/libfprint-2.so.2.0.0
 2fd2b55bb8ba37492dad9836ccbb7b655395d3a4f3ee0789e8454f2935b4b509  artifacts/fingerprint/manifest.json
 13ebbd3ce6a030f02f5f51c0b9d681446f354b38b929de88a0d9531a4fd641bb  artifacts/mutter/manifest.json

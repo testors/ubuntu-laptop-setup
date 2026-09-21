@@ -11,8 +11,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-from common import (REPO, atomic_write, clean_env, compatible, digest, host,
-                    load_artifact, newer, output, package_version, run, symlink)
+from common import (REPO, atomic_write, check_rebuild_host, clean_env, compatible, digest, host,
+                    load_artifact, load_artifact_catalog, newer, output,
+                    package_version, run, select_drag_artifact,
+                    select_mutter_artifact, symlink)
 
 ROOT_STATE = Path('/var/lib/ubuntu-custom')
 FP_CONFIG = Path('/etc/systemd/system/fprintd.service.d/60-egis-05b1.conf')
@@ -251,15 +253,26 @@ def install_mutter(args, m, artifacts):
     print('Mutter installed. Log out and log in to activate. No logout was requested by this program.')
 
 
-def rollback_mutter(args, m, artifacts):
+def resolve_rollback_artifacts(explicit=None):
+    if explicit is not None:
+        artifacts = Path(explicit).resolve()
+        return artifacts, load_artifact(artifacts, 'mutter')
     state = state_read(ROOT_STATE / 'mutter')
-    if state and not getattr(args, 'artifacts', None):
-        saved = Path(state['directory'])
-        if not saved.resolve().is_relative_to((ROOT_STATE / 'mutter').resolve()):
-            raise ValueError('Invalid backup path')
-        artifacts, m = saved, load_artifact(saved, 'mutter')
-    else:
-        print('Using verified stock packages from the selected artifact directory.')
+    if state:
+        directory = state.get('directory')
+        if not isinstance(directory, str) or not Path(directory).is_absolute():
+            raise ValueError('Invalid Mutter backup path')
+        saved = Path(directory).resolve()
+        if not saved.is_relative_to((ROOT_STATE / 'mutter').resolve()):
+            raise ValueError('Invalid Mutter backup path')
+        return saved, load_artifact(saved, 'mutter')
+    catalog = load_artifact_catalog('mutter')
+    if not catalog:
+        raise ValueError('No mutter artifacts archived')
+    return catalog[0]
+
+
+def rollback_mutter(args, m, artifacts):
     compatible(m)
     check_mutter_metadata(artifacts, m)
     for entry in m['packages']:
@@ -280,37 +293,130 @@ def verify_repository():
     print(f'Verified {count} archived source/patch/license/artifact files')
 
 
+def resolve_artifacts(component, explicit=None, rebuild=True, dry_run=False):
+    """Pick a matching archived variant, or rebuild drag/mutter for the host version."""
+    if explicit is not None:
+        artifacts = Path(explicit).resolve()
+        return artifacts, load_artifact(artifacts, component)
+    catalog = load_artifact_catalog(component)
+    if component == 'fingerprint':
+        if not catalog:
+            raise ValueError('No fingerprint artifacts archived')
+        return catalog[0]
+    if component == 'drag':
+        current = package_version('libinput10')
+        if not current:
+            raise ValueError('libinput10 is not installed')
+        selected = select_drag_artifact(catalog, current)
+        if selected:
+            print(f'Using drag artifacts for libinput {current}: {selected[0]}', flush=True)
+            return selected
+        if not rebuild:
+            raise ValueError(f'No drag artifacts for libinput {current}; rebuild or omit --no-rebuild')
+        if dry_run:
+            check_rebuild_host()
+            print(f'DRY RUN: would rebuild drag for libinput {current}, then install. '
+                  'Source and patch compatibility are checked during the real build.', flush=True)
+            return None, None
+        from build import rebuild_component
+        print(f'No archived drag match for libinput {current}; rebuilding…', flush=True)
+        return rebuild_component('drag', current)
+    if component == 'mutter':
+        current = package_version('libmutter-18-0')
+        selected = select_mutter_artifact(catalog, current)
+        if selected:
+            print(f'Using mutter artifacts for {current}: {selected[0]}', flush=True)
+            return selected
+        if '+' in current and not current.endswith('+keymapfix1'):
+            raise ValueError(f'Mutter {current} has an unrecognized local suffix; review it before rebuilding')
+        # A prior local build has no matching Ubuntu source version. Rebuild
+        # from the official base that this tool used for that package.
+        base_version = current.removesuffix('+keymapfix1')
+        if not rebuild:
+            raise ValueError(f'No mutter artifacts suitable for {current}; rebuild or omit --no-rebuild')
+        if dry_run:
+            check_rebuild_host()
+            print(f'DRY RUN: would rebuild mutter from {base_version}, then install. '
+                  'Source and patch compatibility are checked during the real build.', flush=True)
+            return None, None
+        from build import rebuild_component
+        print(f'No archived mutter match for {current}; rebuilding from {base_version}…', flush=True)
+        return rebuild_component('mutter', base_version)
+    raise ValueError(f'Unknown component: {component}')
+
+
+def status_library_component(component, args):
+    catalog = load_artifact_catalog(component)
+    bases = sorted({m.get('base_version') or m.get('version') for _, m in catalog})
+    print(f'\n{component}: archived variants {", ".join(bases) if bases else "(none)"}')
+    path = FP_CONFIG if component == 'fingerprint' else user_paths(args.service)[1]
+    state_dir = (ROOT_STATE / 'fingerprint') if component == 'fingerprint' else user_paths(args.service)[2]
+    state = state_read(state_dir)
+    installed = state.get('manifest')
+    if installed:
+        print(f'  installed version: {installed.get("version")} (base {installed.get("base_version", "n/a")})')
+        print(f'  install directory: {state.get("directory", "?")}')
+    print('  override:', path, 'present' if path.exists() else 'MISSING')
+    service_cmd = (['systemctl', 'show', 'fprintd.service'] if component == 'fingerprint'
+                   else ['systemctl', '--user', 'show', args.service])
+    r = subprocess.run(service_cmd + ['-p', 'Environment', '--value'], text=True, capture_output=True)
+    reference = installed or (catalog[0][1] if catalog else None)
+    if r.returncode == 0 and reference:
+        env = dict(token.split('=', 1) for token in shlex.split(r.stdout) if '=' in token)
+        folders = env.get('LD_LIBRARY_PATH', '').split(':')
+        candidates = [Path(folder) / reference['library'] for folder in folders if folder]
+        if component == 'drag' and env.get('LD_PRELOAD'):
+            candidates += [Path(p) for p in re.split(r'[:\s]+', env['LD_PRELOAD']) if p]
+        for p in candidates:
+            expected = (installed or {}).get('files', {}).get(p.name) or reference['files'].get(p.name)
+            if expected and p.is_file() and digest(p) == expected:
+                label = 'matches installed' if installed and expected in (installed.get('files') or {}).values() else 'matches archive'
+            elif p.is_file():
+                label = 'present (hash differs from recorded manifest)'
+            else:
+                label = 'MISSING'
+            print('  configured library:', p, '-', label)
+        if not candidates:
+            print('  managed library environment is not active in the service configuration')
+    elif r.returncode == 0:
+        print('  managed library environment is not active in the service configuration')
+    if component == 'drag':
+        current = package_version('libinput10')
+        print(f'  system libinput10: {current}')
+        if installed and installed.get('base_version') == current:
+            print('  install matches system libinput version')
+        elif select_drag_artifact(catalog, current):
+            print('  catalog has matching artifacts; re-run install if not active')
+        elif current:
+            print('  REBUILD REQUIRED: no matching drag artifacts for this libinput version')
+    if component == 'fingerprint':
+        usb = (installed or (catalog[0][1] if catalog else {})).get('usb_id')
+        if usb:
+            print('  compatible sensor:', usb_present(usb))
+
+
 def status(args):
     print('Host:', json.dumps(host(), ensure_ascii=False))
-    for component in ('fingerprint', 'drag', 'mutter'):
-        m = load_artifact(REPO / 'artifacts' / component, component)
-        print(f'\n{component}: archived version {m["version"]}')
-        if component == 'mutter':
-            for e in m['packages']:
-                print(f'  {e["package"]}: {package_version(e["package"])}')
-        else:
-            path = FP_CONFIG if component == 'fingerprint' else user_paths(args.service)[1]
-            print('  override:', path, 'present' if path.exists() else 'MISSING')
-            service_cmd = (['systemctl', 'show', 'fprintd.service'] if component == 'fingerprint'
-                           else ['systemctl', '--user', 'show', args.service])
-            r = subprocess.run(service_cmd + ['-p', 'Environment', '--value'], text=True, capture_output=True)
-            if r.returncode == 0:
-                env = dict(token.split('=', 1) for token in shlex.split(r.stdout) if '=' in token)
-                folders = env.get('LD_LIBRARY_PATH', '').split(':')
-                candidates = [Path(folder) / m['library'] for folder in folders if folder]
-                if component == 'drag' and env.get('LD_PRELOAD'):
-                    candidates += [Path(p) for p in re.split(r'[:\s]+', env['LD_PRELOAD']) if p]
-                for p in candidates:
-                    expected = m['files'].get(p.name)
-                    match = ('matches archive' if expected and p.is_file() and digest(p) == expected
-                             else 'MISSING or differs from archived binary; inspect/rebuilt version may differ')
-                    print('  configured library:', p, '-', match)
-                if not candidates:
-                    print('  managed library environment is not active in the service configuration')
-            if component == 'drag' and package_version('libinput10') != m['base_version']:
-                print('  REBUILD REQUIRED: system libinput version differs from archived base')
-        if component == 'fingerprint':
-            print('  compatible sensor:', usb_present(m['usb_id']))
+    for component in ('fingerprint', 'drag'):
+        status_library_component(component, args)
+    catalog = load_artifact_catalog('mutter')
+    bases = sorted({m['base_version'] for _, m in catalog})
+    print(f'\nmutter: archived bases {", ".join(bases) if bases else "(none)"}')
+    state = state_read(ROOT_STATE / 'mutter')
+    if state.get('directory'):
+        print(f'  install record: {state["directory"]}')
+    for package in ('libmutter-18-0', 'mutter-common', 'mutter-common-bin', 'gir1.2-mutter-18'):
+        print(f'  {package}: {package_version(package)}')
+    current = package_version('libmutter-18-0')
+    try:
+        selected = select_mutter_artifact(catalog, current) if current and catalog else None
+    except ValueError as exc:
+        print(f'  catalog selection error: {exc}')
+        selected = None
+    if selected:
+        print(f'  catalog match: {selected[1]["version"]} @ {selected[0]}')
+    elif current:
+        print('  REBUILD REQUIRED: no suitable mutter artifacts for this package version')
     pids = subprocess.run(['pgrep', '-u', str(os.getuid()), '-x', 'gnome-shell'], text=True, capture_output=True).stdout.split()
     for pid in pids:
         print(f'\nGNOME PID {pid} loaded libraries:')
@@ -333,6 +439,8 @@ def main():
     parser.add_argument('component', nargs='?', choices=['fingerprint', 'drag', 'mutter'])
     parser.add_argument('--artifacts', type=Path, help='Rebuilt artifact directory with manifest.json')
     parser.add_argument('--dry-run', action='store_true')
+    parser.add_argument('--no-rebuild', action='store_true',
+                        help='Refuse automatic source rebuild when no catalog match exists')
     parser.add_argument('--service', default=SERVICE, help='GNOME user service used by the drag override')
     args = parser.parse_args()
     if not re.fullmatch(r'org\.gnome\.Shell@[-A-Za-z0-9_.]+\.service', args.service):
@@ -349,16 +457,46 @@ def main():
         parser.error('Use rollback mutter')
     if args.action == 'rollback' and args.component != 'mutter':
         parser.error('Use disable fingerprint or disable drag')
-    artifacts = (args.artifacts or REPO / 'artifacts' / args.component).resolve()
-    m = load_artifact(artifacts, args.component)
-    if args.action != 'disable':
+    if args.action == 'install':
+        artifacts, m = resolve_artifacts(
+            args.component, args.artifacts, rebuild=not args.no_rebuild, dry_run=args.dry_run)
+        if artifacts is None and args.dry_run:
+            print('DRY RUN: no files, services or packages changed')
+            return
+    elif args.action == 'rollback':
+        if os.geteuid() != 0 and not args.artifacts:
+            # The backup is private to root. Resolve it after privilege
+            # escalation, including for a read-only rollback dry run.
+            artifacts, m = None, None
+        else:
+            artifacts, m = resolve_rollback_artifacts(args.artifacts)
+    elif args.artifacts:
+        artifacts = args.artifacts.resolve()
+        m = load_artifact(artifacts, args.component)
+    else:
+        # disable: prefer installed state, else primary catalog entry
+        state_dir = user_paths(args.service)[2] if args.component == 'drag' else ROOT_STATE / 'fingerprint'
+        state = state_read(state_dir)
+        if state.get('manifest'):
+            m = state['manifest']
+            artifacts = Path(state.get('directory') or '.')
+        else:
+            catalog = load_artifact_catalog(args.component)
+            if not catalog:
+                raise ValueError(f'No {args.component} artifacts archived')
+            artifacts, m = catalog[0]
+    if args.action != 'disable' and m is not None:
         compatible(m)
-    if args.component != 'drag' and os.geteuid() != 0 and not args.dry_run:
+    if args.component != 'drag' and os.geteuid() != 0 and (not args.dry_run or args.action == 'rollback'):
         program = ['pkexec', '/usr/bin/python3'] if shutil.which('pkexec') and (os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')) else ['sudo', '/usr/bin/python3']
         # Resolve user-supplied relative artifact paths before changing identity.
         argv = [str(Path(__file__).resolve()), args.action, args.component, '--service', args.service]
-        if args.artifacts:
-            argv += ['--artifacts', str(artifacts)]
+        if artifacts is not None and (args.action != 'rollback' or args.artifacts):
+            argv += ['--artifacts', str(Path(artifacts).resolve())]
+        if args.dry_run:
+            argv.append('--dry-run')
+        if args.no_rebuild:
+            argv.append('--no-rebuild')
         os.execvp(program[0], program + argv)
     if args.action == 'install':
         if args.component == 'mutter':

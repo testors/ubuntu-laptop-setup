@@ -64,6 +64,12 @@ def compatible(m, current=None):
             raise ValueError(f'{k}: artifact={m[k]}, host={current[k]}; rebuild for this host')
 
 
+def check_rebuild_host():
+    current = host()
+    if current['distro'] != 'ubuntu' or current['release'] != '26.04':
+        raise ValueError('Automatic rebuild is validated for Ubuntu 26.04 only')
+
+
 def clean_env():
     env = os.environ.copy()
     # Use distro tools, not an IDE's bundled Python/compiler wrappers.
@@ -105,3 +111,61 @@ def package_version(name):
 
 def newer(a, b):
     return subprocess.run(['dpkg', '--compare-versions', a, 'gt', b]).returncode == 0
+
+
+def version_slug(version):
+    """Filesystem-safe directory name for a Debian package version."""
+    return version.replace(':', '_').replace('/', '_')
+
+
+def artifact_variant_dirs(component):
+    """Legacy root plus optional artifacts/COMPONENT/by-base/<version>/ entries."""
+    root = REPO / 'artifacts' / component
+    dirs = []
+    if (root / 'manifest.json').is_file():
+        dirs.append(root)
+    by_base = root / 'by-base'
+    if by_base.is_dir():
+        for child in sorted(by_base.iterdir()):
+            if child.is_dir() and (child / 'manifest.json').is_file():
+                dirs.append(child)
+    return dirs
+
+
+def load_artifact_catalog(component):
+    """Return verified (path, manifest) pairs for every archived variant."""
+    return [(folder, load_artifact(folder, component)) for folder in artifact_variant_dirs(component)]
+
+
+def select_drag_artifact(catalog, libinput_version):
+    matches = [(path, m) for path, m in catalog if m.get('base_version') == libinput_version]
+    if not matches:
+        return None
+    if len(matches) > 1:
+        raise ValueError(f'Multiple drag artifacts for base_version {libinput_version}')
+    return matches[0]
+
+
+def select_mutter_artifact(catalog, current_version):
+    """Prefer exact base match; otherwise a single safe upgrade candidate."""
+    if not current_version:
+        raise ValueError('libmutter-18-0 is not installed')
+    exact = [(path, m) for path, m in catalog if m.get('base_version') == current_version]
+    if len(exact) == 1:
+        return exact[0]
+    if len(exact) > 1:
+        raise ValueError(f'Multiple mutter artifacts for base_version {current_version}')
+    already = [(path, m) for path, m in catalog if m.get('version') == current_version]
+    if len(already) == 1:
+        return already[0]
+    if len(already) > 1:
+        raise ValueError(f'Multiple mutter artifacts for version {current_version}')
+    # Only an older stock package can be upgraded automatically. A local
+    # version suffix may represent another patch that must be reviewed first.
+    upgrades = [(path, m) for path, m in catalog
+                if '+' not in current_version and newer(m['version'], current_version)
+                and not newer(current_version, m['base_version'])]
+    if len(upgrades) == 1:
+        return upgrades[0]
+    # No unique archived upgrade exists; rebuild against the installed base.
+    return None

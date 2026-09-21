@@ -31,11 +31,15 @@ egismoc만 활성화하고 introspection, hwdb 설치, udev 규칙 설치, 문�
 
 ## 드래그
 
+보통은 `./ubuntu-custom install drag`만으로 충분하다. 설치된 `libinput10`과 같은 `base_version` 보관본이 있으면 그대로 쓰고, 없으면 APT/Launchpad에서 소스를 받아 `build/source-cache/drag/<버전>/`에 보관하고 `build/drag-auto-<버전>/`에 재빌드한 뒤 설치한다. 수동 빌드는 아래와 같다.
+
 ```bash
 ./build-custom build drag
 ./ubuntu-custom install drag --artifacts build/drag/artifacts --dry-run
 ./ubuntu-custom install drag --artifacts build/drag/artifacts
 ```
+
+검증을 마친 산출물을 저장소에 남기려면 `artifacts/drag/by-base/<base_version>/`에 복사하고 `SHA256SUMS`에 해시를 추가한다.
 
 Ubuntu libinput 소스에 `patches/drag-only.patch`를 적용한다. libinput의 native 세손가락 드래그를 shim으로 활성화하고, 빠른 움직임이 swipe로 전환되는 분기를 수정한다. 세손가락 swipe가 GNOME으로 전달되지 않아 데스크톱 전환으로 잘못 처리되지 않는다. 네손가락 처리와 다른 제스처는 원본 동작을 유지한다.
 
@@ -44,6 +48,8 @@ Ubuntu libinput 소스에 `patches/drag-only.patch`를 적용한다. libinput의
 사설 libinput의 기준 버전이 설치된 `libinput10`과 정확히 일치해야 설치할 수 있다. 업데이트 뒤 더 오래된 사설 라이브러리가 계속 선택되는 것을 알아차릴 수 있도록 `status`에서도 버전 차이를 표시한다.
 
 ## Mutter
+
+`./ubuntu-custom install mutter`는 같은 기준 버전의 보관본이나 유일한 업그레이드 보관본을 사용한다. 둘 다 없으면 설치된 GNOME 50용 공식 소스를 받아 재빌드한다. 설치 당시의 공식 원복 패키지도 같은 산출물과 함께 저장한다. 자동 재빌드에 필요한 의존성은 아래 명령으로 확인할 수 있다.
 
 ```bash
 ./build-custom deps mutter

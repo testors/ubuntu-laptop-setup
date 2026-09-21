@@ -12,15 +12,22 @@ import sys
 import tarfile
 from pathlib import Path
 
-from common import REPO, atomic_write, clean_env, digest, host, output, run
+from common import (REPO, atomic_write, check_rebuild_host, clean_env, digest, host, load_artifact,
+                    load_artifact_catalog, output, run, safe_path, version_slug)
 from manage import verify_repository
 
 PATCHES = {'drag': 'drag-only.patch', 'mutter': 'mutter-keymap-race.patch'}
 SOURCE_NAMES = {'drag': 'libinput', 'mutter': 'mutter'}
+SOURCE_PACKAGES = {'drag': 'libinput', 'mutter': 'mutter'}
 BASE_DEPS = 'build-essential meson ninja-build pkg-config dpkg-dev patch'
 DEPS = {
     'fingerprint': 'libglib2.0-dev libgusb-dev libssl-dev libudev-dev libcairo2-dev',
     'drag': 'libevdev-dev libudev-dev libwacom-dev libmtdev-dev libinput-dev check python3-pytest libsystemd-dev',
+}
+REQUIRED_COMMANDS = {
+    'fingerprint': ['meson', 'ninja', 'pkg-config', 'cc', 'patch'],
+    'drag': ['meson', 'ninja', 'pkg-config', 'cc', 'patch', 'dpkg-source'],
+    'mutter': ['dpkg-buildpackage', 'dpkg-source', 'patch', 'meson', 'ninja'],
 }
 
 
@@ -102,14 +109,158 @@ def prepare(args, work):
     return meta
 
 
+def dependency_packages(component):
+    return BASE_DEPS.split() + DEPS.get(component, '').split()
+
+
 def dependencies(args, work):
     # Print-only: dependency installation is a separate, explicit action.
-    print(shlex.join(['sudo', 'apt-get', 'install', *BASE_DEPS.split(), *DEPS.get(args.component, '').split()]))
+    print(shlex.join(['sudo', 'apt-get', 'install', *dependency_packages(args.component)]))
     if args.component == 'mutter':
         if not (work / 'prepared.json').exists():
             print('First run: ./build-custom prepare mutter')
         else:
             print(shlex.join(['sudo', 'apt-get', '--no-install-recommends', 'build-dep', str(work / 'source')]))
+
+
+def missing_build_tools(component):
+    missing = []
+    for name in REQUIRED_COMMANDS[component]:
+        if not shutil.which(name, path=clean_env()['PATH']):
+            missing.append(name)
+    for package in dependency_packages(component):
+        status = subprocess.run(['dpkg-query', '-W', '-f=${db:Status-Status}', package],
+                                text=True, capture_output=True)
+        if status.returncode != 0 or status.stdout.strip() != 'installed':
+            missing.append(package)
+    return missing
+
+
+def showsrc_files(package, version):
+    """Return [(filename, sha256), ...] for one Ubuntu source version."""
+    text = output(['apt-cache', 'showsrc', package], env=clean_env())
+    for block in text.split('\n\n'):
+        ver = None
+        for line in block.splitlines():
+            if line.startswith('Version: '):
+                ver = line.split(': ', 1)[1]
+                break
+        if ver != version:
+            continue
+        files = []
+        in_sha = False
+        for line in block.splitlines():
+            if line.startswith('Checksums-Sha256:'):
+                in_sha = True
+                continue
+            if in_sha:
+                if not line.startswith(' '):
+                    break
+                parts = line.split()
+                if len(parts) >= 3:
+                    files.append((parts[-1], parts[0]))
+        if files:
+            return files
+    raise ValueError(f'No apt source metadata for {package}={version}')
+
+
+def fetch_ubuntu_source(package, version, dest):
+    """Download DSC + tarballs via apt-get source, with Launchpad file fallback."""
+    dest = Path(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    env = clean_env()
+    attempted = subprocess.run(
+        ['apt-get', 'source', '--download-only', f'{package}={version}'],
+        cwd=dest, env=env, text=True, capture_output=True)
+    preferred = [p for p in dest.glob(f'{package}_*.dsc')
+                 if p.name == f'{package}_{version}.dsc' or version_slug(version) in p.name]
+    if attempted.returncode == 0 and preferred:
+        return preferred[0].resolve()
+
+    print(f'apt-get source failed for {package}={version}; trying Launchpad file downloads.', flush=True)
+    try:
+        files = showsrc_files(package, version)
+    except ValueError as exc:
+        detail = (attempted.stderr or attempted.stdout).strip()
+        raise ValueError(f'{exc}; apt-get source failed: {detail}. '
+                         'Enable Ubuntu source repositories or supply a trusted DSC with build-custom prepare.') from exc
+    for name, sha in files:
+        if Path(name).name != name:
+            raise ValueError(f'Invalid source filename: {name}')
+        target = safe_path(dest, name)
+        if target.is_file() and digest(target) == sha:
+            continue
+        url = f'https://launchpad.net/ubuntu/+archive/primary/+files/{name}'
+        print(f'Downloading {name}', flush=True)
+        run(['curl', '-fsSL', '-o', target, url], env=env)
+        if digest(target) != sha:
+            raise ValueError(f'Checksum mismatch after download: {name}')
+    dsc_names = [name for name, _ in files if name.endswith('.dsc')]
+    if len(dsc_names) != 1:
+        raise ValueError(f'Expected one DSC for {package}={version}')
+    dsc_name = dsc_names[0]
+    dsc = dest / dsc_name
+    if not dsc.is_file():
+        raise ValueError(f'Missing DSC after download for {package}={version}')
+    return dsc.resolve()
+
+
+def auto_workdir(component, base_version):
+    return REPO / 'build' / f'{component}-auto-{version_slug(base_version)}'
+
+
+def source_cache_dir(component, base_version):
+    return REPO / 'build' / 'source-cache' / component / version_slug(base_version)
+
+
+def rebuild_component(component, base_version, jobs=None):
+    """Fetch matching Ubuntu source, prepare, and build artifacts for this host."""
+    if component not in ('drag', 'mutter'):
+        raise ValueError(f'Automatic rebuild is not supported for {component}')
+    check_rebuild_host()
+    jobs = jobs or min(os.cpu_count() or 2, 8)
+    work = auto_workdir(component, base_version)
+    dest = work / 'artifacts'
+    if (dest / 'manifest.json').is_file():
+        existing = load_artifact(dest, component)
+        if existing.get('base_version') == base_version:
+            print(f'Reusing previous rebuild artifacts: {dest}', flush=True)
+            return dest, existing
+        raise ValueError(f'Work directory has unrelated artifacts: {work}')
+    if os.geteuid() == 0:
+        raise ValueError('Build as a regular user; do not run this tool with sudo')
+    missing = missing_build_tools(component)
+    if missing:
+        cmd = shlex.join(['sudo', 'apt-get', 'install', *dependency_packages(component)])
+        raise ValueError(f'Missing build tools/packages: {", ".join(missing)}. Install with: {cmd}')
+    if work.exists() and (work / 'prepared.json').exists():
+        meta = json.loads((work / 'prepared.json').read_text())
+        if meta.get('base_version') != base_version or meta.get('component') != component:
+            raise ValueError(f'Use a clean workdir; refusing to reuse {work}')
+    else:
+        if work.exists() and any(work.iterdir()):
+            raise ValueError(f'Incomplete work directory exists; remove or rename {work}')
+        # prepare() requires an empty workdir; keep downloaded sources in a
+        # separate cache so a retry can reuse them without changing the build.
+        dsc = fetch_ubuntu_source(SOURCE_PACKAGES[component], base_version,
+                                  source_cache_dir(component, base_version))
+        args = argparse.Namespace(component=component, dsc=dsc, workdir=work, jobs=jobs)
+        meta = prepare(args, work)
+        if meta['base_version'] != base_version:
+            raise ValueError(f'Prepared version {meta["base_version"]} != requested {base_version}')
+    args = argparse.Namespace(component=component, dsc=None, workdir=work, jobs=jobs)
+    if component == 'mutter':
+        print(shlex.join(['sudo', 'apt-get', '--no-install-recommends', 'build-dep', str(work / 'source')]),
+              flush=True)
+        check = subprocess.run(['dpkg-checkbuilddeps', str(work / 'source' / 'debian/control')],
+                               text=True, capture_output=True, env=clean_env())
+        if check.returncode != 0:
+            detail = (check.stderr or check.stdout or 'unmet build dependencies').strip()
+            raise ValueError(f'Mutter build dependencies missing: {detail}')
+        build_mutter(args, work, meta)
+    else:
+        build_library(args, work, meta)
+    return dest, load_artifact(dest, component)
 
 
 def finish_artifact(dest, meta):
@@ -190,6 +341,7 @@ def build_mutter(args, work, meta):
     for name in ('patched', 'stock'):
         (dest / name).mkdir(parents=True, exist_ok=True)
     packages = ['libmutter-18-0', 'mutter-common', 'mutter-common-bin', 'gir1.2-mutter-18']
+    stock_catalog = load_artifact_catalog('mutter')
     entries = []
     for package in packages:
         matches = []
@@ -201,12 +353,16 @@ def build_mutter(args, work, meta):
         deb = matches[0]
         shutil.copy2(deb, dest / 'patched' / deb.name)
         # Archive rollback packages of the same official source version.
-        bundled = json.loads((REPO / 'artifacts/mutter/manifest.json').read_text())
-        if meta['base_version'] == bundled['base_version']:
+        stock_copied = False
+        for folder, bundled in stock_catalog:
+            if bundled.get('base_version') != meta['base_version']:
+                continue
             entry = next(e for e in bundled['packages'] if e['package'] == package)
-            stock = REPO / 'artifacts/mutter' / entry['stock']
+            stock = folder / entry['stock']
             shutil.copy2(stock, dest / 'stock' / stock.name)
-        else:
+            stock_copied = True
+            break
+        if not stock_copied:
             run(['apt-get', 'download', f'{package}={meta["base_version"]}'], cwd=dest / 'stock', env=env)
         stocks = [p for p in (dest / 'stock').glob('*.deb')
                   if output(['dpkg-deb', '-f', p, 'Package']) == package]

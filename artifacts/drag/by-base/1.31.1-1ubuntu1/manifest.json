@@ -1,0 +1,17 @@
+{
+  "distro": "ubuntu",
+  "release": "26.04",
+  "architecture": "amd64",
+  "component": "drag",
+  "library": "libinput.so.10.13.0",
+  "soname": "libinput.so.10",
+  "version": "1.31.1-1ubuntu1+dragonly1",
+  "base_version": "1.31.1-1ubuntu1",
+  "shim": "libenable-3fg-drag.so",
+  "shim_commit": "09e9ca763eca05c33a183c7a6cf582bdd77dbbb1",
+  "schema": 1,
+  "files": {
+    "libenable-3fg-drag.so": "f84c1d48fc11986c0189cd18461398781f152aeb2769d9ab9dc5c2c68e6c1131",
+    "libinput.so.10.13.0": "33effde2a80ff8f68d5dc22c177ae34716af9d79b508687cb8f83861127e98e6"
+  }
+}
